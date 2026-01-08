@@ -1,0 +1,372 @@
+---
+title: "Situación de dengue en Argentina, 2024"
+author: "Ministerio de Salud. Dirección de Estadísticas e Información de la Salud"
+format: 
+  dashboard:
+    scrolling: FALSE
+href: https://www.argentina.gob.ar/salud/deis
+theme: spacelab
+logo: logo.png
+orientation: columns
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(tidyverse)
+library(readxl)
+library(plotly)
+library(shiny)
+library(reactable)
+library(sf)
+library(viridis)
+
+## Lectura de bases
+dengue_2024 <- read_delim(file = "dengue_2024.csv", 
+                          delim = ";", 
+                          locale = locale(encoding = "ISO-8859-1")) # df con casos de dengue año 2024
+dengue_2024 <- dengue_2024 |> 
+  filter(!is.na(anio_min)) # elimino observaciones vacías
+
+pob <- read_xlsx("tasas.xlsx") # tabla con las poblaciones por grupo etario correspondientes al 2024
+
+fallecidos_se <- read_xlsx("fallecidos se.xlsx") # df con fallecidos por año y se (2020-2024)
+
+fallecidos_prov <- read_xlsx("fallecidos provincia.xlsx") # df con fallecidos por provincia y tasas de mortalidad
+fallecidos_prov <- fallecidos_prov |>
+  mutate(TASA_MORT = round(TASA_MORT, 2),
+         PROV = factor(PROV),
+         PROV = fct_recode(PROV,
+                           "Buenos Aires" = "BUENOS AIRES",
+                           "Córdoba" = "CORDOBA",
+                           "Santa Fe" = "SANTA FE",
+                           "Tucumán" = "TUCUMAN",
+                           "Ciudad Aut. de Buenos Aires" = "CABA",
+                           "Chaco" = "CHACO",
+                           "Salta" = "SALTA",
+                           "Entre Ríos" = "ENTRE RIOS",
+                           "Santiago del Estero" = "SANTIAGO DEL ESTERO",
+                           "Misiones" = "MISIONES",
+                           "Jujuy" = "JUJUY",
+                           "Catamarca" = "CATAMARCA",
+                           "Corrientes" = "CORRIENTES",
+                           "Mendoza" = "MENDOZA",
+                           "La Rioja" = "LA RIOJA",
+                           "San Luis" = "SAN LUIS",
+                           "San Juan" = "SAN JUAN",
+                           "La Pampa" = "LA PAMPA",
+                           "Formosa" = "FORMOSA",
+                           "Neuquén" = "NEUQUEN",
+                           "Tierra del Fuego" = "TIERRA DEL FUEGO",
+                           "Santa Cruz" = "SANTA CRUZ",
+                           "Chubut" = "CHUBUT",
+                           "Río Negro" = "RIO NEGRO"))
+
+## Valores
+casos_acumulados <- sum(dengue_2024$cantidad) # casos acumulados dengue 2024
+
+fallecidos_2024 <- 
+  fallecidos_se |> 
+  filter(ANIO == 2024)
+muertes_acumuladas <- sum(fallecidos_2024$FALLECIDOS) # muertes acumuladas dengue 2024
+
+se1 <- dengue_2024 |> 
+  filter(sepi_min == 32) |> 
+  summarise(cantidad = sum(cantidad)) 
+
+se2 <- dengue_2024 |> 
+  filter(sepi_min == 33) |> 
+    summarise(cantidad = sum(cantidad))
+
+variacion_casos <- se2$cantidad - se1$cantidad / se1$cantidad * 100 # variación porcentual casos
+
+m1 <- fallecidos_2024 |> 
+  filter(SE == 32) |> 
+  summarise(FALLECIDOS = sum(FALLECIDOS)) 
+
+m2 <- fallecidos_2024 |> 
+  filter(SE == 33) |> 
+  summarise(FALLECIDOS = sum(FALLECIDOS))
+
+variacion_muertes <- m2$FALLECIDOS - m1$FALLECIDOS / m1$FALLECIDOS * 100 # variación porcentual muertes
+
+dia <- today()
+
+epiweek <- epiweek(dia) - 2 # eligo este SE porque los datos actualizados tienen una demora de dos semanas
+
+
+## Archivos para mapa
+prov <- st_read("provincia.shp", quiet = TRUE)
+
+st_crs(prov) <- 4326
+
+prov <- st_as_sf(prov, "sf")
+
+prov <-
+  prov |> 
+  mutate(Provincia = c("Ciudad Aut. de Buenos Aires", "Neuquén", "San Luis", 
+                "Santa Fe", "La Rioja", "Catamarca", "Tucumán", "Chaco", 
+                "Formosa", "Santa Cruz", "Chubut", "Mendoza", "Entre Ríos", 
+                "San Juan", "Jujuy", "Santiago del Estero", "Río Negro", 
+                "Corrientes", "Misiones", "Salta", "Córdoba", "Buenos Aires", 
+                "La Pampa", "Tierra del Fuego"))
+
+prov <- prov |> 
+  left_join(fallecidos_prov,
+            by = join_by(Provincia == PROV)) |> 
+  mutate(TASA_MORT = as.numeric(TASA_MORT)) |> 
+  rename("Tasa de mortalidad" = TASA_MORT)
+
+```
+
+## Column {width=15%}
+
+```{r}
+#| content: valuebox
+#| title: "Semana epidemiológica"
+
+list(
+  icon = "calendar-week",
+  color = "#F7DEC7", 
+  value = epiweek
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Casos acumulados de dengue (2024)"
+
+list(
+  icon = "person",
+  color = "#FAEBDDFF", 
+  value = casos_acumulados
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Muertes acumuladas por dengue (2024)"
+
+list(
+  icon = "person-fill",
+  color = "#FAEBDDFF", 
+  value = muertes_acumuladas
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Variación de casos respecto a la SE previa"
+
+list(
+  icon = "percent",
+  color = "#FAEBDDFF", 
+  value = variacion_casos
+)
+
+```
+
+```{r}
+#| content: valuebox
+#| title: "Variación de muertes respecto a la SE previa"
+
+list(
+  icon = "percent",
+  color = "#FAEBDDFF", 
+  value = variacion_muertes
+)
+```
+
+## Column {width=40%}
+
+```{r}
+#| title: "Casos según región por semana epidemiológica. SE 01/2024 a SE 28/2024, Argentina"
+dengue_2024 <- dengue_2024 |> 
+  mutate(
+    region = case_when(
+      provincia_residencia %in% c("Buenos Aires", "Córdoba", "Santa Fe", "CABA", "Entre Ríos") ~ "Centro",
+      provincia_residencia %in% c("Salta", "Tucumán", "Santiago del Estero", "Jujuy", "Catamarca") ~ "NOA",
+      provincia_residencia %in% c("Corrientes", "Chaco", "Misiones", "Formosa") ~ "NEA",
+      provincia_residencia %in% c("Mendoza", "San Juan", "San Luis", "La Rioja") ~ "Cuyo",
+      provincia_residencia %in% c("Río Negro", "Chubut", "Neuquén", "La Pampa", "Tierra del Fuego", "Santa Cruz") ~ "Patagonia",
+      TRUE ~ "Sin dato"
+    )
+  )
+
+tablita <- dengue_2024 |> 
+  group_by(sepi_min, region) |> 
+  summarise(cantidad = sum(cantidad)) |> 
+  rename("Casos" = cantidad,
+         "Semana epidemiológica" = sepi_min,
+         "Región" = region)
+
+figura1 <- tablita |>
+  ggplot(aes(x = `Semana epidemiológica`, y = Casos, fill = Región)) +
+  geom_col(linewidth = 1, width = 1) +
+  geom_point(data = tablita[tablita$Casos == max(tablita$Casos), ], 
+             aes(x = `Semana epidemiológica`, y = Casos),
+             shape = 3, color = "red", size = 5) +
+  theme_minimal() +
+  labs(x = "Semana epidemiológica", 
+       y = "Casos") +
+  theme(legend.text = element_text(size = 10),
+        legend.title = element_blank(),
+        plot.title = element_text(size = 12),
+        axis.text.x = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10)
+  ) +
+  scale_fill_manual(values = c(Centro ="#701F57FF",
+                               NEA ="#2E86C1",
+                               NOA = "#FAEBDDFF",
+                               Patagonia = "#52BE80",
+                               Cuyo = "#F37651FF")) +
+  scale_x_continuous(breaks = seq(0, 52, by = 1))
+
+ggplotly(figura1) |> 
+  layout(legend = list(title = list(text = ''))
+)
+```
+
+```{r}
+#| title: "Casos e incidencia acumulada según grupo de edad. SE 01/2024 a SE 31/2024. Argentina"
+dengue_2024 <- dengue_2024 |> 
+  mutate(grupo_etario1 = fct_collapse(grupo_etario,
+                                      "De 0 a 4 años" = c("Posneonato (29 hasta 365 dÍas)",
+                                                          "Posneonato (29 hasta 365 días)",
+                                                          "Neonato (hasta 28 días)",
+                                                          "Neonato (hasta 28 dÍas)",
+                                                          "De 13 a 24 meses",
+                                                          "De 2 a 4 años"),
+                                      "De 5 a 9 años" = "De 5 a 9 años",
+                                      "De 45 a 64 años" = "De 45 a 65 años")) 
+
+tabla <- 
+  dengue_2024 |>
+  group_by(grupo_etario1) |> 
+  summarise(cantidad = sum(cantidad)) |> 
+  left_join(pob,
+              by = join_by(grupo_etario1 == grupo)) |> 
+    mutate(tasa = cantidad/pob2024*100000) |> 
+  filter(!is.na(tasa)) |> 
+  rename("Grupo etario" = grupo_etario1,
+         "Casos" = cantidad)
+
+graf3 <-  tabla |> 
+filter(`Grupo etario` != "Sin Especificar") |>
+ggplot(aes(x = `Grupo etario`, y = Casos, label = Casos)) +
+geom_col(fill = "#AE1759FF", size = 1, width = 0.8) +
+geom_point(aes(y = tasa*77, text = paste0("Tasa: ", round(tasa,1))), size = 3, color = "#03051AFF") +
+theme_minimal() +
+labs(x = "Semana epidemiológica",
+y = "Cantidad de fallecidos") +
+theme(legend.text = element_text(size = 20),
+plot.title = element_text(size = 12),
+axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 10),
+axis.text.y = element_text(size = 10),
+axis.title.y = element_blank(),
+axis.title.x = element_blank()) +
+scale_y_continuous(name = "Casos acumulados",
+sec.axis = sec_axis(~./77,
+name = "Incidencia acumulada",
+breaks = seq(0, 1500, 300)))
+
+ggplotly(graf3, tooltip = c("label", "text"))
+```
+
+```{r}
+#| title: "Fallecidos por semana epidemiológica en años epidémicos. Argentina"
+fallecidos_se <- fallecidos_se |> 
+  mutate(ANIO = factor(ANIO)) |> 
+  rename("Semana epidemiológica" = SE,
+         "Fallecidos" = FALLECIDOS,
+         "Año" = ANIO)
+
+fallecidos_2024 <-
+  fallecidos_se |> 
+  filter(Año == "2024")
+
+
+fallecidos_otros <-
+  fallecidos_se |> 
+  filter(Año != "2024") |> 
+  mutate(Año = fct_relevel(Año,
+                           "2023", "2020"))
+
+graf2 <- fallecidos_se |> 
+  ggplot(aes(x = `Semana epidemiológica`, y = Fallecidos, color = Año)) +
+  geom_line(data = fallecidos_2024, size = 1.2) +
+  geom_line(data = fallecidos_otros, size = 0.7) +
+  theme_minimal() +
+  labs(x = "Semana epidemiológica", 
+       y = "Fallecidos") +
+  theme(legend.title = element_text(size = 8),
+        axis.text.x = element_text(size = 7),
+        axis.text.y = element_text(size = 7)) +
+  scale_x_continuous(
+    breaks = c(seq(1, 52, by = 1)),
+    labels = c(seq(1, 52, by = 1))) +
+  scale_color_manual(values = c("#2E86C1", "#E13342FF", "#52BE80"))
+ggplotly(graf2) |> 
+  layout(legend = list(title = list(text = '')))
+```
+
+## Column {width=25%}
+
+```{r}
+#| title: "Tasas de mortalidad por cada 100.000 habitantes. Argentina, 2024"
+library(leaflet)
+pal <- colorNumeric(palette = rev(rocket(10)), domain = prov$`Tasa de mortalidad`)
+
+north_coords <- c(lat = -21.1195, lng = -65.6001) # Norte
+south_coords <- c(lat = -54.8019, lng = -68.3030) # Sur
+
+leaflet(prov) %>%
+  addTiles() %>%
+ setView(lng = (north_coords["lng"] + south_coords["lng"]) / 2, 
+          lat = (north_coords["lat"] + south_coords["lat"]) / 2, 
+          zoom = 5) |> 
+  addPolygons(fillColor = ~pal(`Tasa de mortalidad`), 
+              fillOpacity = 0.8, 
+              color = "#BDBDC3", 
+              weight = 1, 
+              popup = ~paste("Provincia:", Provincia, "<br>",
+                             "Tasa de mortalidad:", `Tasa de mortalidad`)) %>%
+  addLegend(pal = pal, values = ~`Tasa de mortalidad`, 
+            title = "Tasa de mortalidad",
+            opacity = 1)
+
+```
+## Column {width=20%}
+
+```{r}
+#| title: "Fallecidos y tasas de mortalidad por cada 100.000 habitantes según provincia. Argentina, 2024"
+fondo <- list(backgroundColor = "#FDF8F3")
+
+tabla_fallecidos_prov <- fallecidos_prov |>
+  select(PROV, FALLECIDOS, TASA_MORT) |>
+  rename(
+    "Provincia" = "PROV",
+    "Fallecidos" = "FALLECIDOS",
+    "Tasa de mortalidad por 100.000 habitantes" = "TASA_MORT"
+  )
+reactable(tabla_fallecidos_prov, 
+          defaultSorted = c("Tasa de mortalidad por 100.000 habitantes", "Fallecidos"), 
+          defaultPageSize = 24,
+          bordered = TRUE,
+          filterable = TRUE,
+          columns = list(
+            Provincia = colDef(
+                      sticky = "left",
+                      style = fondo,
+                      headerStyle = fondo
+                    )),
+          theme = reactableTheme(
+            borderColor = "#F8D9C4FF",
+            stripedColor = "#f6f8fa",
+            highlightColor = "#F8D9C4FF",
+            cellPadding = "8px 12px",
+            style = list(fontFamily = "-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif"),
+            searchInputStyle = list(width = "100%")))
+
+```
